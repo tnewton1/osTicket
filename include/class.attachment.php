@@ -60,6 +60,10 @@ class Attachment extends VerySimpleModel {
         return $this->name ?: $this->file->name;
     }
 
+    function getName() {
+        return $this->getFilename();
+    }
+
     function getHashtable() {
         return $this->ht;
     }
@@ -108,16 +112,15 @@ extends InstrumentedList {
      */
     function keepOnlyFileIds($ids, $inline=false, $lang=false) {
         if (!$ids) $ids = array();
-        $new = array_flip($ids);
         foreach ($this as $A) {
-            if (!isset($new[$A->file_id]) && $A->lang == $lang && $A->inline == $inline)
+            if (!isset($ids[$A->file_id]) && $A->lang == $lang && $A->inline == $inline)
                 // Not in the $ids list, delete
                 $this->remove($A);
-            unset($new[$A->file_id]);
+            unset($ids[$A->file_id]);
         }
         $attachments = array();
         // Format $new for upload() with new name
-        foreach ($new as $id=>$name) {
+        foreach ($ids as $id=>$name) {
             $attachments[] = array(
                     'id' => $id,
                     'name' => $name
@@ -134,7 +137,7 @@ extends InstrumentedList {
         foreach ($files as $file) {
             if (is_numeric($file))
                 $fileId = $file;
-            elseif (is_array($file) && isset($file['id']))
+            elseif (is_array($file) && isset($file['id']) && $file['id'])
                 $fileId = $file['id'];
             elseif (isset($file['tmp_name']) && ($F = AttachmentFile::upload($file)))
                 $fileId = $F->getId();
@@ -145,7 +148,15 @@ extends InstrumentedList {
 
             $_inline = isset($file['inline']) ? $file['inline'] : $inline;
 
-            $att = $this->add(new Attachment(array(
+            // Check if Attachment exists
+            if ($F && $this->key)
+                $existing = Attachment::objects()->filter(array(
+                    'file__key' => $F->key,
+                    'object_id' => $this->key['object_id'],
+                    'type' => $this->key['type']
+                ))->first();
+
+            $att = $this->add(isset($existing) ? $existing : new Attachment(array(
                 'file_id' => $fileId,
                 'inline' => $_inline ? 1 : 0,
             )));

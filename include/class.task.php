@@ -59,7 +59,6 @@ class TaskModel extends VerySimpleModel {
 
             'ticket' => array(
                 'constraint' => array(
-                    'object_type' => "'T'",
                     'object_id' => 'Ticket.ticket_id',
                 ),
                 'null' => true,
@@ -205,8 +204,24 @@ class TaskModel extends VerySimpleModel {
         return $this->setFlag(self::ISOPEN);
     }
 
-    function isAssigned() {
-        return ($this->isOpen() && ($this->getStaffId() || $this->getTeamId()));
+    function isAssigned($to=null) {
+        if (!$this->isOpen())
+            return false;
+
+        if (is_null($to))
+            return ($this->getStaffId() || $this->getTeamId());
+
+        switch (true) {
+        case $to instanceof Staff:
+            return ($to->getId() == $this->getStaffId() ||
+                    $to->isTeamMember($this->getTeamId()));
+            break;
+        case $to instanceof Team:
+            return ($to->getId() == $this->getTeamId());
+            break;
+        }
+
+        return false;
     }
 
     function isOverdue() {
@@ -268,7 +283,7 @@ class Task extends TaskModel implements RestrictedAccess, Threadable {
             return false;
 
         // Check access based on department or assignment
-        if (!$staff->canAccessDept($this->getDeptId())
+        if (!$staff->canAccessDept($this->getDept())
                 && $this->isOpen()
                 && $staff->getId() != $this->getStaffId()
                 && !$staff->isTeamMember($this->getTeamId()))
@@ -280,7 +295,7 @@ class Task extends TaskModel implements RestrictedAccess, Threadable {
             return true;
 
         // Permission check requested -- get role.
-        if (!($role=$staff->getRole($this->getDeptId())))
+        if (!($role=$staff->getRole($this->getDept())))
             return false;
 
         // Check permission based on the effective role
@@ -407,6 +422,9 @@ class Task extends TaskModel implements RestrictedAccess, Threadable {
         $alert = isset($options['alert']) ? $options['alert'] : true;
         switch ($type) {
         case 'N':
+        case 'M':
+            return $this->getThread()->addDescription($vars);
+            break;
         default:
             return $this->postNote($vars, $errors, $poster, $alert);
         }
@@ -535,8 +553,17 @@ class Task extends TaskModel implements RestrictedAccess, Threadable {
             $this->reopen();
             $this->closed = null;
 
-            $ecb = function ($t) {
+            $ecb = function ($t) use($thisstaff) {
                 $t->logEvent('reopened', false, null, 'closed');
+                if ($t->ticket) {
+                    $t->ticket->reopen();
+                    $vars = array(
+                            'title' => sprintf('Task %s Reopened',
+                                $t->getNumber()),
+                            'note' => __('Task reopened')
+                            );
+                    $t->ticket->logNote($vars['title'], $vars['note'], $thisstaff);
+                }
             };
             break;
         case 'closed':
@@ -553,8 +580,16 @@ class Task extends TaskModel implements RestrictedAccess, Threadable {
 
             $this->close();
             $this->closed = SqlFunction::NOW();
-            $ecb = function($t) {
+            $ecb = function($t) use($thisstaff) {
                 $t->logEvent('closed');
+                if ($t->ticket) {
+                    $vars = array(
+                            'title' => sprintf('Task %s Closed',
+                                $t->getNumber()),
+                            'note' => __('Task closed')
+                            );
+                    $t->ticket->logNote($vars['title'], $vars['note'], $thisstaff);
+                }
             };
             break;
         default:
@@ -629,7 +664,7 @@ class Task extends TaskModel implements RestrictedAccess, Threadable {
             $errors['err'] = __('Unknown assignee');
         } elseif (!$assignee->isAvailable()) {
             $errors['err'] = __('Agent is unavailable for assignment');
-        } elseif ($dept->assignMembersOnly() && !$dept->isMember($assignee)) {
+        } elseif (!$dept->canAssign($assignee)) {
             $errors['err'] = __('Permission denied');
         }
 
@@ -673,6 +708,7 @@ class Task extends TaskModel implements RestrictedAccess, Threadable {
         $evd = array();
         $assignee = $form->getAssignee();
         if ($assignee instanceof Staff) {
+            $dept = $this->getDept();
             if ($this->getStaffId() == $assignee->getId()) {
                 $errors['assignee'] = sprintf(__('%s already assigned to %s'),
                         __('Task'),
@@ -680,7 +716,10 @@ class Task extends TaskModel implements RestrictedAccess, Threadable {
                         );
             } elseif(!$assignee->isAvailable()) {
                 $errors['assignee'] = __('Agent is unavailable for assignment');
-            } else {
+              } elseif (!$dept->canAssign($assignee)) {
+                $errors['err'] = __('Permission denied');
+            }
+            else {
                 $this->staff_id = $assignee->getId();
                 if ($thisstaff && $thisstaff->getId() == $assignee->getId())
                     $evd['claim'] = true;
@@ -976,7 +1015,7 @@ class Task extends TaskModel implements RestrictedAccess, Threadable {
 
         $pdf = new Task2PDF($this, $options);
         $name = 'Task-'.$this->getNumber().'.pdf';
-        Http::download($name, 'application/pdf', $pdf->Output($name, 'S'));
+        Http::download($name, 'application/pdf', $pdf->output($name, 'S'));
         //Remember what the user selected - for autoselect on the next print.
         $_SESSION['PAPER_SIZE'] = $options['psize'];
         exit;
@@ -1014,7 +1053,7 @@ class Task extends TaskModel implements RestrictedAccess, Threadable {
         case 'create_date':
             return new FormattedDate($this->getCreateDate());
          case 'due_date':
-            if ($due = $this->getEstDueDate())
+            if ($due = $this->getDueDate())
                 return new FormattedDate($due);
             break;
         case 'close_date':
@@ -1023,6 +1062,10 @@ class Task extends TaskModel implements RestrictedAccess, Threadable {
             break;
         case 'last_update':
             return new FormattedDate($this->last_update);
+        case 'description':
+            return Format::display($this->getThread()->getVar('original') ?: '');
+        case 'subject':
+            return Format::htmlchars($this->getTitle());
         default:
             if (isset($this->_answers[$tag]))
                 // The answer object is retrieved here which will
@@ -1045,6 +1088,7 @@ class Task extends TaskModel implements RestrictedAccess, Threadable {
             'dept' => array(
                 'class' => 'Dept', 'desc' => __('Department'),
             ),
+            'description' => __('Description'),
             'due_date' => array(
                 'class' => 'FormattedDate', 'desc' => __('Due Date'),
             ),
@@ -1150,6 +1194,14 @@ class Task extends TaskModel implements RestrictedAccess, Threadable {
 
     }
 
+    function addCollaborator($user, $vars, &$errors, $event=true) {
+        if ($c = $this->getThread()->addCollaborator($user, $vars, $errors, $event)) {
+            $this->collaborators = null;
+            $this->recipients = null;
+        }
+        return $c;
+    }
+
     /*
      * Notify collaborators on response or new message
      *
@@ -1158,7 +1210,7 @@ class Task extends TaskModel implements RestrictedAccess, Threadable {
         global $cfg;
 
         if (!$entry instanceof ThreadEntry
-            || !($recipients=$this->getThread()->getParticipants())
+            || !($recipients=$this->getThread()->getRecipients())
             || !($dept=$this->getDept())
             || !($tpl=$dept->getTemplate())
             || !($msg=$tpl->getTaskActivityNoticeMsgTemplate())
@@ -1297,13 +1349,18 @@ class Task extends TaskModel implements RestrictedAccess, Threadable {
 
         // Create a thread + message.
         $thread = TaskThread::create($task);
-        $thread->addDescription($vars);
+        $desc = $thread->addDescription($vars);
+        // Set the ORIGINAL_MESSAGE Flag if Description is added
+        if ($desc) {
+            $desc->setFlag(ThreadEntry::FLAG_ORIGINAL_MESSAGE);
+            $desc->save();
+        }
 
 
         $task->logEvent('created', null, $thisstaff);
 
         // Get role for the dept
-        $role = $thisstaff->getRole($task->dept_id);
+        $role = $thisstaff->getRole($task->getDept());
         // Assignment
         $assignee = $vars['internal_formdata']['assignee'];
         if ($assignee
@@ -1319,9 +1376,74 @@ class Task extends TaskModel implements RestrictedAccess, Threadable {
             $task->assign($form, $_errors);
         }
 
+        $task->onNewTask();
+
         Signal::send('task.created', $task);
 
         return $task;
+    }
+
+    function onNewTask($vars=array()) {
+        global $cfg, $thisstaff;
+
+        if (!$cfg->alertONNewTask() // Check if alert is enabled
+            || !($dept=$this->getDept())
+            || ($dept->isGroupMembershipEnabled() == Dept::ALERTS_DISABLED)
+            || !($email=$cfg->getAlertEmail())
+            || !($tpl = $dept->getTemplate())
+            || !($msg=$tpl->getNewTaskAlertMsgTemplate())
+        ) {
+            return;
+        }
+
+        // Check if Dept recipients is Admin Only
+        $adminOnly = ($dept->isGroupMembershipEnabled() == Dept::ALERTS_ADMIN_ONLY);
+
+        // Alert recipients
+        $recipients = array();
+
+        // Department Manager
+        if ($cfg->alertDeptManagerONNewTask()
+            && $dept->getManagerId()
+            && !$adminOnly)
+            $recipients[] = $dept->getManager();
+
+        // Department Members
+        if ($cfg->alertDeptMembersONNewTask() && !$adminOnly)
+            foreach ($dept->getMembersForAlerts() as $M)
+                $recipients[] = $M;
+
+        $options = array();
+        $staffId = $thisstaff ? $thisstaff->getId() : 0;
+
+        $msg = $this->replaceVars($msg->asArray(), $vars);
+
+        $sentlist=array();
+        foreach ($recipients as $k=>$staff) {
+            if (!is_object($staff)
+                // Don't bother vacationing staff.
+                || !$staff->isAvailable()
+                // No need to alert the poster!
+                || $staffId == $staff->getId()
+                // No duplicates.
+                || isset($sentlist[$staff->getEmail()])
+                // Make sure staff has access to task
+                || !$this->checkStaffPerm($staff)
+            ) {
+                continue;
+            }
+            $alert = $this->replaceVars($msg, array('recipient' => $staff));
+            $email->sendAlert($staff, $alert['subj'], $alert['body'], null, $options);
+            $sentlist[$staff->getEmail()] = 1;
+        }
+
+        // Alert Admin ONLY if not already a staff
+        if ($cfg->alertAdminONNewTask()
+                && !in_array($cfg->getAdminEmail(), $sentlist)) {
+            $alert = $this->replaceVars($msg, array('recipient' => __('Admin')));
+            $email->sendAlert($cfg->getAdminEmail(), $alert['subj'],
+                    $alert['body'], null, $options);
+        }
     }
 
     function delete($comments='') {
@@ -1332,7 +1454,7 @@ class Task extends TaskModel implements RestrictedAccess, Threadable {
         if (!parent::delete())
             return false;
 
-        $thread->delete();
+        $this->logEvent('deleted');
 
         Draft::deleteForNamespace('task.%.' . $this->getId());
 
@@ -1545,7 +1667,8 @@ class TaskThread extends ObjectThread {
     function addDescription($vars, &$errors=array()) {
 
         $vars['threadId'] = $this->getId();
-        $vars['message'] = $vars['description'];
+        if (!isset($vars['message']) && $vars['description'])
+            $vars['message'] = $vars['description'];
         unset($vars['description']);
         return MessageThreadEntry::add($vars, $errors);
     }

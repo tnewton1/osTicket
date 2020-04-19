@@ -887,8 +887,9 @@ class StaffAuthStrikeBackend extends  AuthStrikeBackend {
                    ._S('Time').": ".date('M j, Y, g:i a T')."\n\n"
                    ._S('Attempts').": {$authsession['strikes']}\n"
                    ._S('Timeout').": ".sprintf(_N('%d minute', '%d minutes', $timeout), $timeout)."\n\n";
+            $admin_alert = ($cfg->alertONLoginError() == 1) ? TRUE : FALSE;
             $ost->logWarning(sprintf(_S('Excessive login attempts (%s)'),$username),
-                    $alert, $cfg->alertONLoginError());
+                    $alert, $admin_alert);
             return new AccessDenied(__('Forgot your login info? Contact Admin.'));
         //Log every other third failed login attempt as a warning.
         } elseif($authsession['strikes']%3==0) {
@@ -947,14 +948,15 @@ class UserAuthStrikeBackend extends  AuthStrikeBackend {
                     _S('IP').": {$_SERVER['REMOTE_ADDR']}\n".
                     _S('Time').": ".date('M j, Y, g:i a T')."\n\n".
                     _S('Attempts').": {$authsession['strikes']}";
-            $ost->logError(_S('Excessive login attempts (user)'), $alert, ($cfg->alertONLoginError()));
+            $admin_alert = ($cfg->alertONLoginError() == 1 ? TRUE : FALSE);
+            $ost->logError(_S('Excessive login attempts (user)'), $alert, $admin_alert);
             return new AccessDenied(__('Access denied'));
         } elseif($authsession['strikes']%3==0) { //Log every third failed login attempt as a warning.
             $alert=_S('Username').": {$username}\n".
                     _S('IP').": {$_SERVER['REMOTE_ADDR']}\n".
                     _S('Time').": ".date('M j, Y, g:i a T')."\n\n".
                     _S('Attempts').": {$authsession['strikes']}";
-            $ost->logWarning(_S('Failed login attempt (user)'), $alert);
+            $ost->logWarning(_S('Failed login attempt (user)'), $alert, false);
         }
 
     }
@@ -1061,7 +1063,8 @@ class AuthTokenAuthentication extends UserAuthenticationBackend {
             if (($ticket = Ticket::lookupByNumber($_GET['t'], $_GET['e']))
                     // Using old ticket auth code algo - hardcoded here because it
                     // will be removed in ticket class in the upcoming rewrite
-                    && !strcasecmp($_GET['a'], md5($ticket->getId() .  strtolower($_GET['e']) . SECRET_SALT))
+                    && strcasecmp((string) $_GET['a'], md5($ticket->getId()
+                            .  strtolower($_GET['e']) . SECRET_SALT)) === 0
                     && ($owner = $ticket->getOwner()))
                 $user = new ClientSession($owner);
         }

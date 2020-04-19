@@ -35,12 +35,15 @@ class StaffAjaxAPI extends AjaxController {
 
       if ($_POST && $form->isValid()) {
           $clean = $form->getClean();
-          if ($id == 0) {
-              // Stash in the session later when creating the user
-              $_SESSION['new-agent-passwd'] = $clean;
-              Http::response(201, 'Carry on');
-          }
           try {
+              // Validate password
+              if (!$clean['welcome_email'])
+                  PasswordPolicy::checkPassword($clean['passwd1'], null);
+              if ($id == 0) {
+                  // Stash in the session later when creating the user
+                  $_SESSION['new-agent-passwd'] = $clean;
+                  Http::response(201, 'Carry on');
+              }
               if ($clean['welcome_email']) {
                   $staff->sendResetEmail();
               }
