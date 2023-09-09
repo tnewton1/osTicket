@@ -796,7 +796,7 @@ class ThreadEntryMergeInfo extends VerySimpleModel {
 }
 
 class ThreadEntry extends VerySimpleModel
-implements TemplateVariable {
+implements TemplateVariable , JsonSerializable {
     static $meta = array(
         'table' => THREAD_ENTRY_TABLE,
         'pk' => array('id'),
@@ -1881,6 +1881,28 @@ implements TemplateVariable {
     static function getPermissions() {
         return self::$perms;
     }
+
+    public function jsonSerialize() {
+        return [
+            "id" => $this->getId(),
+            "pid" => $this->getPid(),
+            "thread_id" => $this->getThreadId(),
+            "staff_id" => $this->getStaffId() ,
+            "user_id" => $this->getUserId() ,
+            "type" => $this-> getType(),
+            "poster" => $this->getPoster(),
+            "editor" => $this-> getEditor(),
+            "source" => $this-> getSource(),
+            "title" => $this->getTitle(),
+            "body"=> $this->getBody()->getClean(),
+            "message"=>$this->getMessage(),
+            "format" => $this-> format,
+            "created"=> $this->created ,
+            "updated" => $this->updated,
+            "staff_name" => $this->getStaff() ? $this->getStaff()->getName(): null ,
+            "user_name" => $this->getUser() ?  $this->getUser()->getName() : null
+        
+        ];
 
     static function getTypes() {
         return self::$types;
