@@ -8,7 +8,7 @@ $content = Page::lookupByType('banner-client');
 
 if ($content) {
     list($title, $body) = $ost->replaceTemplateVariables(
-        array($content->getName(), $content->getBody()));
+        array($content->getLocalName(), $content->getLocalBody()));
 } else {
     $title = __('Sign In');
     $body = __('To better serve you, we encourage our clients to register for an account and verify the email address we have on record.');
@@ -26,7 +26,7 @@ if ($content) {
         <input id="username" placeholder="<?php echo __('Email or Username'); ?>" type="text" name="luser" size="30" value="<?php echo $email; ?>" class="nowarn">
     </div>
     <div>
-        <input id="passwd" placeholder="<?php echo __('Password'); ?>" type="password" name="lpasswd" size="30" value="<?php echo $passwd; ?>" class="nowarn"></td>
+        <input id="passwd" placeholder="<?php echo __('Password'); ?>" type="password" name="lpasswd" size="30" maxlength="128" value="<?php echo $passwd; ?>" class="nowarn"></td>
     </div>
     <p>
         <input class="btn" type="submit" value="<?php echo __('Sign In'); ?>">

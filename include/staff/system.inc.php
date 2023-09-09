@@ -41,6 +41,10 @@ $extensions = array(
             'name' => 'fileinfo',
             'desc' => __('Used to detect file types for uploads')
             ),
+        'zip' => array(
+            'name' => 'zip',
+            'desc' => __('Used for ticket and task exporting')
+            ),
         'apcu' => array(
             'name' => 'APCu',
             'desc' => __('Improves overall performance')
@@ -64,7 +68,7 @@ $extensions = array(
 <?php
 $lv = $ost->getLatestVersion('core', MAJOR_VERSION);
 $tv = THIS_VERSION;
-$gv = GIT_VERSION == '$git' ? substr(@`git rev-parse HEAD`, 0, 7) : false ?: GIT_VERSION;
+$gv = (GIT_VERSION == '$git') ? substr(@`git rev-parse HEAD`, 0, 7) : (false ?: GIT_VERSION);
 if ($lv && $tv[0] == 'v' ? version_compare(THIS_VERSION, $lv, '>=') : $lv == $gv) { ?>
     — <span style="color:green"><i class="icon-check"></i> <?php echo __('Up to date'); ?></span>
 <?php
@@ -74,7 +78,7 @@ else {
     $cv = $tv[0] == 'v' ? $tv : $gv;
 ?>
       <a class="green button action-button pull-right"
-         href="http://osticket.com/download?cv=<?php echo $cv; ?>"><i class="icon-rocket"></i>
+         href="https://osticket.com/download?cv=<?php echo $cv; ?>"><i class="icon-rocket"></i>
         <?php echo __('Upgrade'); ?></a>
 <?php if ($lv) { ?>
       <strong> — <?php echo str_replace(
@@ -190,7 +194,7 @@ if (!$lv) { ?>
             &mdash; <?php echo $manifest['Language']; ?>
         <?php } ?>
 <?php   if ($info['phar'])
-            Plugin::showVerificationBadge($info['path']); ?>
+            PluginManager::showVerificationBadge($info['path']); ?>
         </h3>
         <div><?php echo sprintf('<code>%s</code> — %s', $info['code'],
                 str_replace(ROOT_DIR, '', $info['path'])); ?>

@@ -19,6 +19,7 @@ if(!defined('INCLUDE_DIR')) die('403');
 
 include_once(INCLUDE_DIR.'class.ticket.php');
 require_once INCLUDE_DIR.'class.note.php';
+require_once INCLUDE_DIR.'ajax.tickets.php';
 
 class UsersAjaxAPI extends AjaxController {
 
@@ -33,7 +34,7 @@ class UsersAjaxAPI extends AjaxController {
         if (!$_REQUEST['q'])
             return $this->json_encode($matches);
 
-        $q = $_REQUEST['q'];
+        $q = Format::sanitize($_REQUEST['q']);
         $limit = isset($_REQUEST['limit']) ? (int) $_REQUEST['limit']:25;
         $users=array();
         $emails=array();
@@ -73,19 +74,24 @@ class UsersAjaxAPI extends AjaxController {
                     return $this->search($type, $fulltext);
                 }
             } else {
-                $users->filter(Q::any(array(
-                    'emails__address__contains' => $q,
-                    'name__contains' => $q,
-                    'org__name__contains' => $q,
-                    'cdata__phone__contains' => $q,
-                )));
+                $base = clone $users;
+                $users->filter(array('name__contains' => $q));
+                $users->union($base->copy()->filter(array(
+                                'org__name__contains' => $q)), false);
+                $users->union($base->copy()->filter(array(
+                                'emails__address__contains' => $q)),  false);
+                $users->union($base->copy()->filter(array(
+                                'account__username__contains' => $q)), false);
+                if (UserForm::getInstance()->getField('phone')) {
+                      $users->union($base->copy()->filter(array(
+                                'cdata__phone__contains' => $q)), false);
+                }
             }
 
             // Omit already-imported remote users
             if ($emails = array_filter($emails)) {
                 $users->union(User::objects()
                     ->values_flat('id', 'name', 'default_email__address')
-                    ->annotate(array('__relevance__' => new SqlCode(1)))
                     ->filter(array(
                         'emails__address__in' => $emails
                 )));
@@ -101,7 +107,7 @@ class UsersAjaxAPI extends AjaxController {
                 }
                 $name = Format::htmlchars(new UsersName($name));
                 $matches[] = array('email'=>$email, 'name'=>$name, 'info'=>"$email - $name",
-                    "id" => $id, "/bin/true" => $_REQUEST['q']);
+                    "id" => $id, "/bin/true" => $q);
             }
             usort($matches, function($a, $b) { return strcmp($a['name'], $b['name']); });
         }
@@ -134,7 +140,6 @@ class UsersAjaxAPI extends AjaxController {
 
     }
 
-
     function editUser($id) {
         global $thisstaff;
 
@@ -164,14 +169,18 @@ class UsersAjaxAPI extends AjaxController {
             Http::response(404, 'Unknown user');
 
         $errors = array();
+        $form = UserForm::getUserForm()->getForm($_POST);
+        if (!is_string($form->getField('name')->getValue()))
+            Http::response(404, 'Invalid Data');
+
         if ($user->updateInfo($_POST, $errors, true) && !$errors)
-             Http::response(201, $user->to_json());
+             Http::response(201, $user->to_json(),  'application/json');
 
         $forms = $user->getForms();
         include(STAFFINC_DIR . 'templates/user.tmpl.php');
     }
 
-    function register($id) {
+    static function register($id) {
         global $thisstaff;
 
         if (!$thisstaff)
@@ -268,7 +277,7 @@ class UsersAjaxAPI extends AjaxController {
     function getUser($id=false) {
 
         if(($user=User::lookup(($id) ? $id : $_REQUEST['id'])))
-           Http::response(201, $user->to_json());
+           Http::response(201, $user->to_json(), 'application/json');
 
         $info = array('error' => sprintf(__('%s: Unknown or invalid ID.'), _N('end user', 'end users', 1)));
 
@@ -279,7 +288,7 @@ class UsersAjaxAPI extends AjaxController {
         return self::addUser();
     }
 
-    function addUser() {
+    static function addUser() {
         global $thisstaff;
 
         $info = array();
@@ -293,8 +302,10 @@ class UsersAjaxAPI extends AjaxController {
 
             $info['title'] = __('Add New User');
             $form = UserForm::getUserForm()->getForm($_POST);
+            if (!is_string($form->getField('name')->getValue()))
+                Http::response(404, 'Invalid Data');
             if (($user = User::fromForm($form)))
-                Http::response(201, $user->to_json());
+                Http::response(201, $user->to_json(), 'application/json');
 
             $info['error'] = sprintf('%s - %s', __('Error adding user'), __('Please try again!'));
         }
@@ -430,7 +441,7 @@ class UsersAjaxAPI extends AjaxController {
             }
 
             if ($org && $user->setOrganization($org))
-                Http::response(201, $org->to_json());
+                Http::response(201, $org->to_json(), 'application/json');
             elseif (! $info['error'])
                 $info['error'] = __('Unable to add user to organization.')
                     .' '.__('Correct any errors below and try again.');
@@ -510,5 +521,28 @@ class UsersAjaxAPI extends AjaxController {
         Http::response(201, 'Successfully managed');
     }
 
+    function exportTickets($id) {
+        global $thisstaff;
+
+        if (!$thisstaff)
+            Http::response(403, 'Agent login is required');
+        elseif (!$id)
+            Http::response(403, __('User ID Required'));
+
+        $user = User::lookup($id);
+        if (!$user)
+            Http::response(403, __('User Not Found'));
+
+        $queue = $user->getTicketsQueue();
+
+        if ($_POST) {
+            $api = new TicketsAjaxAPI();
+            return $api->queueExport($queue);
+        }
+
+        $info = array('action' => "#users/$id/tickets/export");
+
+        include STAFFINC_DIR . 'templates/queue-export.tmpl.php';
+    }
 }
 ?>

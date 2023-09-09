@@ -15,6 +15,8 @@ if(!($maxfileuploads=ini_get('max_file_uploads')))
         <?php echo __('Autoresponder'); ?></a></li>
     <li><a href="#alerts"><i class="icon-bell-alt"></i>
         <?php echo __('Alerts and Notices'); ?></a></li>
+    <li><a href="#queues"><i class="icon-table"></i>
+        <?php echo __('Queues'); ?></a></li>
 </ul>
 <div class="tab_content" id="settings">
 <table class="form_table settings_table" width="940" border="0" cellspacing="0" cellpadding="2">
@@ -63,6 +65,12 @@ if(!($maxfileuploads=ini_get('max_file_uploads')))
                 <i class="help-tip icon-question-sign" href="#sequence_id"></i>
             </td>
         </tr>
+        <tr><td width="220"><?php echo __('Top-Level Ticket Counts'); ?>:</td>
+            <td>
+                <input type="checkbox" name="queue_bucket_counts" <?php echo $config['queue_bucket_counts']?'checked="checked"':''; ?>>
+                <?php echo __('Enable'); ?>&nbsp;<i class="help-tip icon-question-sign" href="#queue_bucket_counts"></i>
+            </td>
+        </tr>
         <tr>
             <td width="180" class="required">
                 <?php echo __('Default Status'); ?>:
@@ -89,7 +97,7 @@ if(!($maxfileuploads=ini_get('max_file_uploads')))
                 ?>
                 </select>
                 &nbsp;
-                <span class="error">*&nbsp;<?php echo $errors['default_ticket_status_id']; ?></span>
+                <span class="error"><?php echo $errors['default_ticket_status_id']; ?></span>
                 <i class="help-tip icon-question-sign" href="#default_ticket_status"></i>
                 </span>
             </td>
@@ -105,7 +113,7 @@ if(!($maxfileuploads=ini_get('max_file_uploads')))
                     <?php
                     } ?>
                 </select>
-                &nbsp;<span class="error">*&nbsp;<?php echo $errors['default_priority_id']; ?></span> <i class="help-tip icon-question-sign" href="#default_priority"></i>
+                &nbsp;<span class="error"><?php echo $errors['default_priority_id']; ?></span> <i class="help-tip icon-question-sign" href="#default_priority"></i>
              </td>
         </tr>
         <tr>
@@ -127,7 +135,7 @@ if(!($maxfileuploads=ini_get('max_file_uploads')))
                     }
                     ?>
                 </select>
-                &nbsp;<span class="error">*&nbsp;<?php echo $errors['default_sla_id']; ?></span>  <i class="help-tip icon-question-sign" href="#default_sla"></i>
+                &nbsp;<span class="error"><?php echo $errors['default_sla_id']; ?></span>  <i class="help-tip icon-question-sign" href="#default_sla"></i>
                 </span>
             </td>
         </tr>
@@ -137,7 +145,7 @@ if(!($maxfileuploads=ini_get('max_file_uploads')))
                 <select name="default_help_topic">
                     <option value="0">&mdash; <?php echo __('None'); ?> &mdash;</option><?php
                     $topics = Topic::getHelpTopics(false, Topic::DISPLAY_DISABLED);
-                    while (list($id,$topic) = each($topics)) { ?>
+                    foreach ($topics as $id=>$topic) { ?>
                         <option value="<?php echo $id; ?>"<?php echo ($config['default_help_topic']==$id)?'selected':''; ?>><?php echo $topic; ?></option>
                     <?php
                     } ?>
@@ -163,11 +171,28 @@ if(!($maxfileuploads=ini_get('max_file_uploads')))
             </td>
         </tr>
         <tr>
+            <td>
+                <?php echo __('Default Ticket Queue'); ?>:
+            </td>
+            <td>
+                <select name="default_ticket_queue">
+<?php foreach (CustomQueue::queues() as $cq) {
+?>
+                  <option value="<?php echo $cq->id; ?>"
+            <?php if ($cq->getId() == $config['default_ticket_queue']) echo 'selected="selected"'; ?>
+            ><?php echo $cq->getFullName(); ?></option>
+<?php } ?>
+                </select>
+                <i class="help-tip icon-question-sign" href="#default_ticket_queue"></i>
+                <div class="error"><?php echo $errors['default_ticket_queue']; ?></div>
+            </td>
+        </tr>
+        <tr>
             <td><?php echo __('Maximum <b>Open</b> Tickets');?>:</td>
             <td>
                 <input type="text" name="max_open_tickets" size=4 value="<?php echo $config['max_open_tickets']; ?>">
                 <?php echo __('per end user'); ?>
-                <span class="error">*&nbsp;<?php echo $errors['max_open_tickets']; ?></span>
+                <span class="error"><?php echo $errors['max_open_tickets']; ?></span>
                 <i class="help-tip icon-question-sign" href="#maximum_open_tickets"></i>
             </td>
         </tr>
@@ -176,8 +201,15 @@ if(!($maxfileuploads=ini_get('max_file_uploads')))
             <td>
                 <input type="checkbox" name="enable_captcha" <?php echo $config['enable_captcha']?'checked="checked"':''; ?>>
                 <?php echo __('Enable CAPTCHA on new web tickets.');?>
-                &nbsp;<font class="error">&nbsp;<?php echo $errors['enable_captcha']; ?></font>
+                &nbsp;<font class="error"><?php echo $errors['enable_captcha']; ?></font>
                 &nbsp;<i class="help-tip icon-question-sign" href="#human_verification"></i>
+            </td>
+        </tr>
+        <tr>
+            <td><?php echo __('Collaborator Tickets Visibility'); ?>:</td>
+            <td>
+                <input type="checkbox" name="collaborator_ticket_visibility" <?php echo $config['collaborator_ticket_visibility']?'checked="checked"':''; ?>>
+                <?php echo __('Enable'); ?>&nbsp;<i class="help-tip icon-question-sign" href="#collaborator_ticket_visibility"></i>
             </td>
         </tr>
         <tr>
@@ -188,21 +220,25 @@ if(!($maxfileuploads=ini_get('max_file_uploads')))
             </td>
         </tr>
         <tr>
-            <td><?php echo __('Assigned Tickets');?>:</td>
+            <td><?php echo __('Auto-refer on Close'); ?>:</td>
             <td>
-                <input type="checkbox" name="show_assigned_tickets" <?php
-                echo !$config['show_assigned_tickets']?'checked="checked"':''; ?>>
-                <?php echo __('Exclude assigned tickets from open queue.'); ?>
-                <i class="help-tip icon-question-sign" href="#assigned_tickets"></i>
+                <input type="checkbox" name="auto_refer_closed" <?php echo $config['auto_refer_closed']?'checked="checked"':''; ?>>
+                <?php echo __('Enable'); ?>&nbsp;<i class="help-tip
+                icon-question-sign" href="#auto_refer"></i>
             </td>
         </tr>
         <tr>
-            <td><?php echo __('Answered Tickets');?>:</td>
+            <td><?php echo __('Require Help Topic to Close'); ?>:</td>
             <td>
-                <input type="checkbox" name="show_answered_tickets" <?php
-                echo !$config['show_answered_tickets']?'checked="checked"':''; ?>>
-                <?php echo __('Exclude answered tickets from open queue.'); ?>
-                <i class="help-tip icon-question-sign" href="#answered_tickets"></i>
+                <input type="checkbox" name="require_topic_to_close" <?php echo $config['require_topic_to_close']?'checked="checked"':''; ?>>
+                <?php echo __('Enable'); ?>&nbsp;<i class="help-tip icon-question-sign" href="#require_topic_to_close"></i>
+            </td>
+        </tr>
+        <tr>
+            <td><?php echo __('Allow External Images'); ?>:</td>
+            <td>
+                <input type="checkbox" name="allow_external_images" <?php echo $config['allow_external_images']?'checked="checked"':''; ?>>
+                <?php echo __('Enable'); ?>&nbsp;<i class="help-tip icon-question-sign" href="#allow_external_images"></i>
             </td>
         </tr>
         <tr>
@@ -237,6 +273,10 @@ if(!($maxfileuploads=ini_get('max_file_uploads')))
 <div class="hidden tab_content" id="alerts"
     data-tip-namespace="settings.alerts">
     <?php include STAFFINC_DIR . 'settings-alerts.inc.php'; ?>
+</div>
+
+<div class="hidden tab_content" id="queues">
+    <?php include STAFFINC_DIR . 'queues-ticket.inc.php'; ?>
 </div>
 
 <p style="text-align:center;">

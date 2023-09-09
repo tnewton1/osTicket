@@ -6,7 +6,7 @@ require_once(INCLUDE_DIR.'class.draft.php');
 
 class DraftAjaxAPI extends AjaxController {
 
-    function _createDraft($vars) {
+    static function _createDraft($vars) {
         if (false === ($vars['body'] = self::_findDraftBody($_POST)))
             return JsonDataEncoder::encode(array(
                 'error' => __("Draft body not found in request"),
@@ -16,24 +16,26 @@ class DraftAjaxAPI extends AjaxController {
         if (!($draft = Draft::create($vars)) || !$draft->save())
             Http::response(500, 'Unable to create draft');
 
+        header('Content-Type: application/json; charset=UTF-8');
         echo JsonDataEncoder::encode(array(
             'draft_id' => $draft->getId(),
         ));
     }
 
-    function _getDraft($draft) {
+    static function _getDraft($draft) {
         if (!$draft || !$draft instanceof Draft)
             Http::response(205, "Draft not found. Create one first");
 
         $body = Format::viewableImages($draft->getBody());
 
+        header('Content-Type: application/json; charset=UTF-8');
         echo JsonDataEncoder::encode(array(
             'body' => $body,
             'draft_id' => $draft->getId(),
         ));
     }
 
-    function _updateDraft($draft) {
+    static function _updateDraft($draft) {
         if (false === ($body = self::_findDraftBody($_POST)))
             return JsonDataEncoder::encode(array(
                 'error' => array(
@@ -48,93 +50,96 @@ class DraftAjaxAPI extends AjaxController {
         echo "{}";
     }
 
-    function _uploadInlineImage($draft) {
+    static function _uploadInlineImage($draft) {
         global $cfg;
 
-        if (!isset($_POST['data']) && !isset($_FILES['file']))
+        if (!isset($_FILES['file']))
             Http::response(422, "File not included properly");
 
         # Fixup for expected multiple attachments
-        if (isset($_FILES['file'])) {
-            foreach ($_FILES['file'] as $k=>$v)
-                $_FILES['image'][$k] = array($v);
-            unset($_FILES['file']);
+        $file = AttachmentFile::format($_FILES['file']);
 
-            $file = AttachmentFile::format($_FILES['image']);
-            # Allow for data-uri uploaded files
-            $fp = fopen($file[0]['tmp_name'], 'rb');
-            if (fread($fp, 5) == 'data:') {
-                $data = 'data:';
-                while ($block = fread($fp, 8192))
-                  $data .= $block;
-                $file[0] = Format::parseRfc2397($data);
-                list(,$ext) = explode('/', $file[0]['type'], 2);
-                $file[0] += array(
-                    'name' => Misc::randCode(8).'.'.$ext,
-                    'size' => strlen($file[0]['data']),
-                );
-            }
-            fclose($fp);
-
-            # TODO: Detect unacceptable attachment extension
-            # TODO: Verify content-type and check file-content to ensure image
-            $type = $file[0]['type'];
-            if (strpos($file[0]['type'], 'image/') !== 0)
-                return Http::response(403,
-                    JsonDataEncoder::encode(array(
-                        'error' => 'File type is not allowed',
-                    ))
-                );
-
-            # TODO: Verify file size is acceptable
-            if ($file[0]['size'] > $cfg->getMaxFileSize())
-                return Http::response(403,
-                    JsonDataEncoder::encode(array(
-                        'error' => 'File is too large',
-                    ))
-                );
-
-            // Paste uploads in Chrome will have a name of 'blob'
-            if ($file[0]['name'] == 'blob')
-                $file[0]['name'] = 'screenshot-'.Misc::randCode(4);
-
-            $ids = $draft->attachments->upload($file);
-
-            if (!$ids) {
-                if ($file[0]['error']) {
-                    return Http::response(403,
-                        JsonDataEncoder::encode(array(
-                            'error' => $file[0]['error'],
-                        ))
-                    );
-                }
-                else
-                    return Http::response(500, 'Unable to attach image');
-            }
-
-            $id = (is_array($ids)) ? $ids[0] : $ids;
-        }
-        else {
-            $type = explode('/', $_POST['contentType']);
-            $info = array(
-                'data' => base64_decode($_POST['data']),
-                'name' => Misc::randCode(10).'.'.$type[1],
-                // TODO: Ensure _POST['contentType']
-                'type' => $_POST['contentType'],
+        // Allow one file at a time.
+        if (count($file) > 1)
+            return Http::response(403,
+                JsonDataEncoder::encode(array(
+                    'error' => 'Send one file at a time',
+                ))
             );
-            // TODO: Detect unacceptable filetype
-            // TODO: Verify content-type and check file-content to ensure image
-            $id = $draft->attachments->save($info);
+
+        # Allow for data-uri uploaded files
+        $fp = fopen($file[0]['tmp_name'], 'rb');
+        if (fread($fp, 5) == 'data:') {
+            $data = 'data:';
+            while ($block = fread($fp, 8192))
+              $data .= $block;
+            $file[0] = Format::parseRfc2397($data);
+            list(,$ext) = explode('/', $file[0]['type'], 2);
+            $file[0] += array(
+                'name' => Misc::randCode(8).'.'.$ext,
+                'size' => strlen($file[0]['data']),
+            );
         }
+        fclose($fp);
+
+        // Check file type to ensure image
+        $type = $file[0]['type'];
+        if (strpos($file[0]['type'], 'image/') !== 0)
+            return Http::response(403,
+                JsonDataEncoder::encode(array(
+                    'error' => 'File type is not allowed',
+                ))
+            );
+
+        // Check if file is truly an image
+        if (!FileUploadField::isValidFile($file[0]))
+            return Http::response(403,
+                JsonDataEncoder::encode(array(
+                    'error' => 'File is not valid',
+                ))
+            );
+
+        // Verify file size is acceptable
+        if ($file[0]['size'] > $cfg->getMaxFileSize())
+            return Http::response(403,
+                JsonDataEncoder::encode(array(
+                    'error' => 'File is too large',
+                ))
+            );
+
+        // Paste uploads in Chrome will have a name of 'blob'
+        if ($file[0]['name'] == 'blob')
+            $file[0]['name'] = 'screenshot-'.Misc::randCode(4);
+
+        $ids = $draft->attachments->upload($file);
+
+        if (!$ids) {
+            if ($file[0]['error']) {
+                return Http::response(403,
+                    JsonDataEncoder::encode(array(
+                        'error' => $file[0]['error'],
+                    ))
+                );
+
+            }
+            else
+                return Http::response(500, 'Unable to attach image');
+        }
+
+        $id = (is_array($ids)) ? $ids[0] : $ids;
         if (!($f = AttachmentFile::lookup($id)))
             return Http::response(500, 'Unable to attach image');
 
+        header('Content-Type: application/json; charset=UTF-8');
         echo JsonDataEncoder::encode(array(
+            Format::sanitize($f->getName()) => array(
             'content_id' => 'cid:'.$f->getKey(),
+            'id' => $f->getKey(),
             // Return draft_id to connect the auto draft creation
             'draft_id' => $draft->getId(),
-            'filelink' => $f->getDownloadUrl(false, 'inline'),
-        ));
+            'url' => $f->getDownloadUrl(
+                ['type' => 'D', 'deposition' => 'inline']),
+        )));
     }
 
     // Client interface for drafts =======================================
@@ -334,41 +339,46 @@ class DraftAjaxAPI extends AjaxController {
         if (!$thisstaff)
             Http::response(403, "Login required for file queries");
 
+        $search = Q::any([
+            Q::all([
+                'attachments__type__in' => array('C', 'F', 'T', 'P'),
+                'attachments__inline' => 1,
+            ]),
+            'ft' => 'L',
+        ]);
+
         if (isset($_GET['threadId']) && is_numeric($_GET['threadId'])
             && ($thread = Thread::lookup($_GET['threadId']))
             && ($object = $thread->getObject())
             && ($thisstaff->canAccess($object))
         ) {
-            $union = ' UNION SELECT f.id, a.`type`, a.`name` FROM '.THREAD_TABLE.' t
-                JOIN '.THREAD_ENTRY_TABLE.' th ON (th.thread_id = t.id)
-                JOIN '.ATTACHMENT_TABLE.' a ON (a.object_id = th.id AND a.`type` = \'H\')
-                JOIN '.FILE_TABLE.' f ON (a.file_id = f.id)
-                WHERE a.`inline` = 1 AND t.id='.db_input($_GET['threadId']);
+            $search->add(Q::all([
+                'attachments__thread_entry__thread_id' => $_GET['threadId'],
+                'attachments__inline' => 1,
+            ]));
         }
 
-        $sql = 'SELECT distinct f.id, COALESCE(a.type, f.ft), a.`name` FROM '.FILE_TABLE
-            .' f LEFT JOIN '.ATTACHMENT_TABLE.' a ON (a.file_id = f.id)
-            WHERE ((a.`type` IN (\'C\', \'F\', \'T\', \'P\') AND a.`inline` = 1) OR f.ft = \'L\')'
-                .' AND f.`type` LIKE \'image/%\'';
-        if (!($res = db_query($sql.$union)))
-            Http::response(500, 'Unable to lookup files');
+        $images = AttachmentFile::objects()->filter([
+                $search,
+                'type__startswith' => 'image/',
+            ])->distinct('id');
 
         $files = array();
-        while (list($id, $type, $name) = db_fetch_row($res)) {
-            $f = AttachmentFile::lookup((int) $id);
+        foreach ($images as $f) {
             $url = $f->getDownloadUrl();
             $files[] = array(
                 // Don't send special sizing for thread items 'cause they
                 // should be cached already by the client
-                'thumb'=>$url.($type != 'H' ? '&s=128' : ''),
-                'image'=>$url,
-                'title'=>$name ?: $f->getName(),
+                'thumb' => $url.($f->type != 'H' ? '&s=128' : ''),
+                'url' => $url,
+                'title' => $f->getName(),
             );
         }
+        header('Content-Type: application/json; charset=UTF-8');
         echo JsonDataEncoder::encode($files);
     }
 
-    function _findDraftBody($vars) {
+    static function _findDraftBody($vars) {
         if (isset($vars['name'])) {
             $parts = array();
             // Support nested `name`, like trans[lang]
@@ -380,8 +390,15 @@ class DraftAjaxAPI extends AjaxController {
                 return $focus;
             }
         }
+
+        // Get ThreadEntry field name.
+        $tform = TicketForm::objects()->one()->getForm();
+        $tfield = $tform->getField('message')->getFormName();
+        // Get Task Description field name.
+        $aform = TaskForm::objects()->one()->getForm();
+        $afield = $aform->getField('description')->getFormName();
         $field_list = array('response', 'note', 'answer', 'body',
-             'message', 'issue', 'description');
+             $tfield, 'issue', $afield);
         foreach ($field_list as $field) {
             if (isset($vars[$field])) {
                 return $vars[$field];

@@ -8,6 +8,7 @@ if($_REQUEST['id'] && !($form=DynamicForm::lookup($_REQUEST['id'])))
 
 if($_POST) {
     $_POST = Format::htmlchars($_POST, true);
+    $_POST['instructions'] = Format::htmldecode($_POST['instructions']);
     $fields = array('title', 'notes', 'instructions');
     $required = array('title');
     $max_sort = 0;
@@ -46,7 +47,7 @@ if($_POST) {
                         $field->set($f, $_POST["$f-$id"]);
                     }
                 }
-                if (in_array($field->get('name'), $names))
+                if (in_array(strtolower($field->get('name')), $names))
                     $field->addError(__('Field variable name is not unique'), 'name');
                 // Subject (Issue Summary) must always have data
                 if ($form->get('type') == 'T' && $field->get('name') == 'subject') {
@@ -55,7 +56,7 @@ if($_POST) {
                             'type');
                 }
                 if ($field->get('name'))
-                    $names[] = $field->get('name');
+                    $names[] = strtolower($field->get('name'));
                 if ($field->isValid())
                     $form_fields[] = $field;
                 else
@@ -64,6 +65,8 @@ if($_POST) {
                 // Keep track of the last sort number
                 $max_sort = max($max_sort, $field->get('sort'));
             }
+            $type = array('type' => 'edited');
+            Signal::send('object.edited', $form, $type);
             break;
         case 'add':
             $form = DynamicForm::create();
@@ -74,6 +77,8 @@ if($_POST) {
                 elseif (isset($_POST[$f]))
                     $form->set($f, $_POST[$f]);
             }
+            $type = array('type' => 'created');
+            Signal::send('object.created', $form, $type);
             break;
 
         case 'mass_process':
@@ -115,12 +120,12 @@ if($_POST) {
             ));
             $field->setRequirementMode($_POST["visibility-new-$i"]);
             $form->fields->add($field);
-            if (in_array($field->get('name'), $names))
+            if (in_array(strtolower($field->get('name')), $names))
                 $field->addError(__('Field variable name is not unique'), 'name');
             if ($field->isValid()) {
                 $form_fields[] = $field;
-                if ($N = $field->get('name'))
-                    $names[] = $N;
+                if ($field->get('name'))
+                    $names[] = strtolower($field->get('name'));
             }
             else
                 $errors["new-$i"] = $field->errors();

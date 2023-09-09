@@ -27,11 +27,21 @@ Bootstrap::i18n_prep();
 Bootstrap::loadCode();
 Bootstrap::connect();
 
-#Global override
+# Global Override when behind a proxy
 $_SERVER['REMOTE_ADDR'] = osTicket::get_client_ip();
+$_SERVER['SERVER_PORT'] = osTicket::get_client_port();
 
 if(!($ost=osTicket::start()) || !($cfg = $ost->getConfig()))
 Bootstrap::croak(__('Unable to load config info from DB.').' '.__('Get technical help!'));
+
+if ($cfg && $cfg->forceHttps()
+        && !osTicket::is_cli()
+        && !osTicket::is_https()) {
+    if ($_SERVER['REQUEST_METHOD'] !== 'GET')
+        Http::response(400, 'HTTPS Protocol Required');
+
+    Http::redirect('https://'.$_SERVER['HTTP_HOST'].$_SERVER['REQUEST_URI']);
+}
 
 //Init
 $session = $ost->getSession();
@@ -50,7 +60,7 @@ $_REQUEST=Format::strip_slashes($_REQUEST);
 // extract system messages
 $errors = array();
 $msg=$warn=$sysnotice='';
-if ($_SESSION['::sysmsgs']) {
+if (isset($_SESSION['::sysmsgs'])) {
     extract($_SESSION['::sysmsgs']);
     unset($_SESSION['::sysmsgs']);
 }

@@ -22,6 +22,10 @@ require_once($thisdir.'main.inc.php');
 
 if(!defined('INCLUDE_DIR')) die('Fatal error');
 
+// Enforce ACL (if applicable)
+if (!Validator::check_acl('client'))
+    die(__('Access Denied'));
+
 /*Some more include defines specific to client only */
 define('CLIENTINC_DIR',INCLUDE_DIR.'client/');
 define('OSTCLIENTINC',TRUE);
@@ -75,6 +79,8 @@ $ost->addExtraHeader('<meta name="csrf_token" content="'.$ost->getCSRFToken().'"
 
 /* Client specific defaults */
 define('PAGE_LIMIT', DEFAULT_PAGE_LIMIT);
+define('SESSION_MAXLIFE', $thisclient ? $thisclient->getMaxIdleTime() :
+        SESSION_TTL);
 
 require(INCLUDE_DIR.'class.nav.php');
 $nav = new UserNav($thisclient, 'home');

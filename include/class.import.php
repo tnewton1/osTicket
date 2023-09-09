@@ -19,14 +19,22 @@ class ImportError extends Exception {}
 class ImportDataError extends ImportError {}
 
 class CsvImporter {
+    // Bytes sequence of common BOM
+    const BOMs = array(
+                 'UTF8' => "\xEF\xBB\xBF",
+                 'UTF16_BE' => "\xFE\xFF",
+                 'UTF16_LE' => "\xFF\xFE",
+                 'UTF32_BE' => "\x00\x00\xFE\xFF",
+                 'UTF32_LE' => "\xFF\xFE\x00\x00");
     var $stream;
 
     function __construct($stream) {
         // File upload
         if (is_array($stream) && !$stream['error']) {
-            // Properly detect Macintosh style line endings
-            ini_set('auto_detect_line_endings', true);
             $this->stream = fopen($stream['tmp_name'], 'r');
+            // Skip Byte Order Mark (BOM) if present
+            if (!self::isBOM(fgets($this->stream, 4)))
+                rewind($this->stream);
         }
         // Open file
         elseif (is_resource($stream)) {
@@ -39,7 +47,7 @@ class CsvImporter {
             rewind($this->stream);
         }
         else {
-            throw new ImportError(__('Unable to parse submitted csv: ').print_r($stream, true));
+            throw new ImportError(__('Unable to parse submitted csv: ').print_r(Format::htmlchars($stream), true));
         }
     }
 
@@ -59,7 +67,7 @@ class CsvImporter {
             throw new ImportError(__('Whoops. Perhaps you meant to send some CSV records'));
 
         $headers = array();
-        foreach ($data as $h) {
+        foreach (Format::htmlchars($data) as $h) {
             $h = trim($h);
             $found = false;
             foreach ($all_fields as $f) {
@@ -68,7 +76,7 @@ class CsvImporter {
                     $found = true;
                     if (!$f->get('name'))
                         throw new ImportError(sprintf(__(
-                            '%s: Field must have `variable` set to be imported'), $h));
+                            '%s: Field must have `variable` set to be imported'), Format::htmlchars($h)));
                     $headers[$f->get('name')] = $f->get('label');
                     break;
                 }
@@ -85,7 +93,7 @@ class CsvImporter {
                 }
                 else {
                     throw new ImportError(sprintf(
-                                __('%s: Unable to map header to the object field'), $h));
+                                __('%s: Unable to map header to the object field'), Format::htmlchars($h)));
                 }
             }
         }
@@ -115,6 +123,11 @@ class CsvImporter {
         // continuable such that the rows with errors can be handled and the
         // iterator can continue with the next row.
         return new CsvImportIterator($this->stream, $headers, $fields, $defaults);
+    }
+
+    // Check if a string matches a BOM
+    static function isBOM($str) {
+        return in_array($str, self::BOMs);
     }
 }
 
@@ -176,7 +189,7 @@ implements Iterator {
             foreach ($this->headers as $h => $label) {
                 $f = $this->fields[$h];
                 $f->_errors = array();
-                $T = $f->parse($csv[$i]);
+                $T = $f->parse(trim($csv[$i]));
                 if ($f->validateEntry($T) && $f->errors())
                     throw new ImportDataError(sprintf(__(
                         /* 1 will be a field label, and 2 will be error messages */

@@ -68,13 +68,13 @@ $info=($_POST && $errors)?Format::htmlchars($_POST):array('prefix'=>'ost_','dbho
                 </div>
                 <div class="row">
                     <label><?php echo __('Password');?>:</label>
-                    <input type="password" name="passwd" size="45" tabindex="7" value="<?php echo $info['passwd']; ?>" autocomplete="off">
+                    <input type="password" name="passwd" size="45" maxlength="128" tabindex="7" value="<?php echo $info['passwd']; ?>" autocomplete="off">
                     <a class="tip" href="#password"><i class="icon-question-sign help-tip"></i></a>
                     <font class="error"><?php echo $errors['passwd']; ?></font>
                 </div>
                 <div class="row">
                     <label><?php echo __('Retype Password');?>:</label>
-                    <input type="password" name="passwd2" size="45" tabindex="8" value="<?php echo $info['passwd2']; ?>">
+                    <input type="password" name="passwd2" size="45" maxlength="128" tabindex="8" value="<?php echo $info['passwd2']; ?>">
                     <a class="tip" href="#password2"><i class="icon-question-sign help-tip"></i></a>
                     <font class="error"><?php echo $errors['passwd2']; ?></font>
                 </div>
@@ -120,7 +120,7 @@ $info=($_POST && $errors)?Format::htmlchars($_POST):array('prefix'=>'ost_','dbho
             </form>
     </div>
     <div>
-        <p><strong><?php echo __('Need Help?');?></strong> <?php echo __('We provide <u>professional installation services</u> and commercial support.');?> <a target="_blank" href="http://osticket.com/support"><?php echo __('Learn More!');?></a></p>
+        <p><strong><?php echo __('Need Help?');?></strong> <?php echo __('We provide <u>professional installation services</u> and commercial support.');?> <a target="_blank" href="https://osticket.com/support"><?php echo __('Learn More!');?></a></p>
     </div>
     <div id="overlay"></div>
     <div id="loading">
